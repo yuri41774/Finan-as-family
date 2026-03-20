@@ -1,0 +1,588 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  LayoutDashboard, 
+  ShoppingCart, 
+  Trash2, 
+  CheckCircle2, 
+  Circle, 
+  TrendingDown, 
+  TrendingUp,
+  Wallet, 
+  Plus,
+  Minus,
+  X,
+  Package,
+  ArrowUpCircle,
+  ArrowDownCircle,
+  Pill,
+  History,
+  Receipt,
+  Download,
+  Smartphone
+} from 'lucide-react';
+
+// Chaves para persistência
+const STORAGE_KEYS = {
+  INCOMES: 'casagest_v3_incomes',
+  EXPENSES: 'casagest_v3_expenses',
+  SHOPPING: 'casagest_v3_shopping'
+};
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [installPrompt, setInstallPrompt] = useState(null);
+  
+  // Estados com carregamento seguro do LocalStorage
+  const [incomes, setIncomes] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.INCOMES);
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+  
+  const [expenses, setExpenses] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.EXPENSES);
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+
+  const [shoppingItems, setShoppingItems] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.SHOPPING);
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+
+  // Estados para Formulários
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [transactionType, setTransactionType] = useState('expense');
+  const [newTransaction, setNewTransaction] = useState({ title: '', amount: '', category: 'Alimentação' });
+  
+  // Estado do Novo Item da Lista
+  const [newItemName, setNewItemName] = useState('');
+  const [newItemPrice, setNewItemPrice] = useState('');
+  const [newItemQty, setNewItemQty] = useState(1);
+  const [newItemUnit, setNewItemUnit] = useState('un');
+  const [newItemIsBulk, setNewItemIsBulk] = useState(false);
+  const [newItemCategory, setNewItemCategory] = useState('Alimentação');
+
+  // --- LÓGICA PWA (Instalação no Android) ---
+  useEffect(() => {
+    // Configura Metadados da App no <head>
+    const metaTags = [
+      { name: 'theme-color', content: '#2563eb' },
+      { name: 'apple-mobile-web-app-capable', content: 'yes' },
+      { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
+      { name: 'mobile-web-app-capable', content: 'yes' }
+    ];
+
+    metaTags.forEach(tag => {
+      let el = document.querySelector(`meta[name="${tag.name}"]`);
+      if (!el) {
+        el = document.createElement('meta');
+        el.name = tag.name;
+        document.head.appendChild(el);
+      }
+      el.content = tag.content;
+    });
+
+    // Gera Manifest Dinâmico
+    const manifest = {
+      name: "CasaGest: Finanças e Compras",
+      short_name: "CasaGest",
+      start_url: ".",
+      display: "standalone",
+      background_color: "#F8FAFC",
+      theme_color: "#2563eb",
+      icons: [
+        {
+          src: "https://cdn-icons-png.flaticon.com/512/2845/2845811.png",
+          sizes: "512x512",
+          type: "image/png",
+          purpose: "any maskable"
+        }
+      ]
+    };
+    const manifestStr = JSON.stringify(manifest);
+    const blob = new Blob([manifestStr], { type: 'application/json' });
+    const manifestURL = URL.createObjectURL(blob);
+    let link = document.querySelector('link[rel="manifest"]');
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'manifest';
+      document.head.appendChild(link);
+    }
+    link.href = manifestURL;
+
+    // Captura evento de instalação (Android/Chrome)
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    });
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setInstallPrompt(null);
+    }
+  };
+
+  // Sincronização com LocalStorage
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.INCOMES, JSON.stringify(incomes));
+    localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify(expenses));
+    localStorage.setItem(STORAGE_KEYS.SHOPPING, JSON.stringify(shoppingItems));
+  }, [incomes, expenses, shoppingItems]);
+
+  // Cálculos Financeiros
+  const stats = useMemo(() => {
+    const totalIn = incomes.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+    const totalOut = expenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+    const balance = totalIn - totalOut;
+    const perc = totalIn > 0 ? Math.min((totalOut / totalIn) * 100, 100) : (totalOut > 0 ? 100 : 0);
+    return { totalIn, totalOut, balance, perc };
+  }, [incomes, expenses]);
+
+  // Cálculo de Totais de Compras
+  const shoppingStats = useMemo(() => {
+    const pendingItems = shoppingItems.filter(i => !i.completed);
+    const cartItems = shoppingItems.filter(i => i.completed);
+
+    const calcTotal = (list) => list.reduce((acc, curr) => {
+      const p = Number(curr.price) || 0;
+      const q = Number(curr.quantity) || 0;
+      const total = curr.unit === 'g' ? (p * q) / 1000 : p * q;
+      return acc + total;
+    }, 0);
+
+    return {
+      pendingCount: pendingItems.length,
+      pendingValue: calcTotal(pendingItems),
+      cartCount: cartItems.length,
+      cartValue: calcTotal(cartItems),
+      topPending: pendingItems.slice(0, 3)
+    };
+  }, [shoppingItems]);
+
+  // Handlers de Finanças
+  const handleAddTransaction = (e) => {
+    e.preventDefault();
+    if (!newTransaction.title || !newTransaction.amount) return;
+    
+    const transaction = {
+      id: Date.now(),
+      title: newTransaction.title,
+      amount: Number(newTransaction.amount),
+      category: newTransaction.category,
+      date: new Date().toLocaleDateString('pt-BR')
+    };
+
+    if (transactionType === 'income') setIncomes([transaction, ...incomes]);
+    else setExpenses([transaction, ...expenses]);
+
+    setNewTransaction({ title: '', amount: '', category: 'Alimentação' });
+    setIsModalOpen(false);
+  };
+
+  // Handlers da Lista de Compras
+  const handleAddShopItem = (e) => {
+    e.preventDefault();
+    if (!newItemName) return;
+
+    const item = {
+      id: Date.now(),
+      name: newItemName,
+      price: Number(newItemPrice) || 0,
+      quantity: Number(newItemQty) || 1,
+      unit: newItemUnit,
+      isBulk: newItemIsBulk,
+      category: newItemCategory,
+      completed: false
+    };
+
+    setShoppingItems([item, ...shoppingItems]);
+    
+    setNewItemName('');
+    setNewItemPrice('');
+    setNewItemQty(1);
+    setNewItemIsBulk(false);
+  };
+
+  const toggleShopItem = (id) => {
+    setShoppingItems(shoppingItems.map(item => 
+      item.id === id ? { ...item, completed: !item.completed } : item
+    ));
+  };
+
+  const deleteShopItem = (id) => {
+    setShoppingItems(shoppingItems.filter(item => item.id !== id));
+  };
+
+  const updateQty = (id, delta) => {
+    setShoppingItems(shoppingItems.map(item => {
+      if (item.id === id) {
+        const step = item.unit === 'g' ? 50 : 1;
+        return { ...item, quantity: Math.max(step, item.quantity + (delta * step)) };
+      }
+      return item;
+    }));
+  };
+
+  const finalizeShopping = () => {
+    if (shoppingStats.cartValue <= 0) return;
+    const shoppingExpense = {
+      id: Date.now(),
+      title: `Compras de Casa (${new Date().toLocaleDateString('pt-BR')})`,
+      amount: shoppingStats.cartValue,
+      category: 'Alimentação',
+      date: new Date().toLocaleDateString('pt-BR')
+    };
+    setExpenses([shoppingExpense, ...expenses]);
+    setShoppingItems(shoppingItems.filter(i => !i.completed));
+    setActiveTab('finances');
+  };
+
+  return (
+    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans lg:pl-72 pb-24 lg:pb-0">
+      
+      {/* Sidebar Desktop */}
+      <aside className="fixed left-0 top-0 h-full w-72 bg-white border-r border-slate-200 hidden lg:flex flex-col p-8 z-40">
+        <div className="flex items-center gap-4 mb-12">
+          <div className="bg-blue-600 p-2.5 rounded-2xl text-white shadow-xl shadow-blue-100">
+            <Wallet size={28} />
+          </div>
+          <h1 className="text-2xl font-black tracking-tight text-slate-800">CasaGest</h1>
+        </div>
+        
+        <nav className="space-y-2">
+          <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all ${activeTab === 'dashboard' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`}>
+            <LayoutDashboard size={22} /> Início
+          </button>
+          <button onClick={() => setActiveTab('finances')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all ${activeTab === 'finances' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`}>
+            <History size={22} /> Finanças
+          </button>
+          <button onClick={() => setActiveTab('shopping')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all ${activeTab === 'shopping' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`}>
+            <ShoppingCart size={22} /> Compras
+          </button>
+        </nav>
+      </aside>
+
+      {/* Bottom Nav Mobile */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-3 lg:hidden z-50 rounded-t-[2.5rem] shadow-2xl text-nowrap">
+        <button onClick={() => setActiveTab('dashboard')} className={`flex flex-col items-center gap-1 flex-1 py-2 ${activeTab === 'dashboard' ? 'text-blue-600' : 'text-slate-400'}`}>
+          <LayoutDashboard size={24} /> <span className="text-[10px] font-black uppercase tracking-widest">Início</span>
+        </button>
+        <button onClick={() => setActiveTab('finances')} className={`flex flex-col items-center gap-1 flex-1 py-2 ${activeTab === 'finances' ? 'text-blue-600' : 'text-slate-400'}`}>
+          <History size={24} /> <span className="text-[10px] font-black uppercase tracking-widest">Finanças</span>
+        </button>
+        <button onClick={() => setActiveTab('shopping')} className={`flex flex-col items-center gap-1 flex-1 py-2 ${activeTab === 'shopping' ? 'text-blue-600' : 'text-slate-400'}`}>
+          <ShoppingCart size={24} /> <span className="text-[10px] font-black uppercase tracking-widest">Compras</span>
+        </button>
+      </nav>
+
+      {/* MAIN CONTENT */}
+      <main className="max-w-5xl mx-auto p-4 md:p-12">
+        
+        {/* DASHBOARD */}
+        {activeTab === 'dashboard' && (
+          <div className="space-y-8 animate-in fade-in duration-700 max-w-4xl mx-auto">
+            <header className="text-center space-y-2">
+              <h2 className="text-4xl font-black text-slate-800 tracking-tight">Painel Geral 👋</h2>
+              <p className="text-slate-400 font-bold uppercase text-[10px] tracking-[0.2em]">Finanças e Compras</p>
+            </header>
+
+            {/* Banner de Instalação PWA */}
+            {installPrompt && (
+              <div className="bg-gradient-to-r from-blue-600 to-blue-500 p-6 rounded-[2rem] text-white shadow-xl shadow-blue-100 flex items-center justify-between animate-bounce-short">
+                <div className="flex items-center gap-4">
+                  <div className="bg-white/20 p-3 rounded-2xl"><Smartphone size={24} /></div>
+                  <div>
+                    <h4 className="font-bold">Instalar CasaGest?</h4>
+                    <p className="text-xs text-blue-100">Acede mais rápido a partir do teu ecrã inicial.</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={handleInstallClick}
+                  className="bg-white text-blue-600 px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg"
+                >
+                  Instalar
+                </button>
+              </div>
+            )}
+
+            <div className="flex justify-center gap-4">
+              <button onClick={() => { setTransactionType('income'); setIsModalOpen(true); }} className="bg-emerald-600 text-white px-6 md:px-8 py-3.5 rounded-2xl font-black text-sm shadow-xl shadow-emerald-100 flex items-center gap-2 active:scale-95 transition-all">
+                <Plus size={20} /> Ganho
+              </button>
+              <button onClick={() => { setTransactionType('expense'); setIsModalOpen(true); }} className="bg-red-600 text-white px-6 md:px-8 py-3.5 rounded-2xl font-black text-sm shadow-xl shadow-red-100 flex items-center gap-2 active:scale-95 transition-all">
+                <Plus size={20} /> Gasto
+              </button>
+            </div>
+
+            {/* Grid Financeiro */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col items-center text-center">
+                <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl mb-4"><ArrowUpCircle size={24}/></div>
+                <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Rendas</p>
+                <h3 className="text-2xl font-black text-emerald-600">R$ {stats.totalIn.toFixed(2)}</h3>
+              </div>
+              <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col items-center text-center">
+                <div className="p-3 bg-red-50 text-red-600 rounded-2xl mb-4"><ArrowDownCircle size={24}/></div>
+                <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Despesas</p>
+                <h3 className="text-2xl font-black text-red-600">R$ {stats.totalOut.toFixed(2)}</h3>
+              </div>
+              <div className={`p-6 rounded-[2.5rem] border-none shadow-xl flex flex-col items-center text-center text-white ${stats.balance >= 0 ? 'bg-blue-600 shadow-blue-100' : 'bg-slate-800'}`}>
+                <div className="p-3 bg-white/20 rounded-2xl mb-4"><Wallet size={24}/></div>
+                <p className="opacity-70 text-[10px] font-black uppercase tracking-widest">Saldo</p>
+                <h3 className="text-2xl font-black">R$ {stats.balance.toFixed(2)}</h3>
+              </div>
+            </div>
+
+            {/* Grid de Compras no Dashboard */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm space-y-6">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-black text-slate-800 text-xs uppercase tracking-widest flex items-center gap-2">
+                    <ShoppingCart size={16} className="text-blue-500" /> Resumo de Compras
+                  </h4>
+                  <button onClick={() => setActiveTab('shopping')} className="text-[10px] font-black text-blue-600 uppercase hover:underline">Ver tudo</button>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-slate-50 p-4 rounded-2xl text-nowrap overflow-hidden">
+                    <p className="text-[9px] font-black text-slate-400 uppercase">Falta</p>
+                    <p className="text-lg font-black text-slate-700">{shoppingStats.pendingCount} itens</p>
+                    <p className="text-[10px] font-bold text-slate-400">R$ {shoppingStats.pendingValue.toFixed(2)}</p>
+                  </div>
+                  <div className="bg-emerald-50 p-4 rounded-2xl text-nowrap overflow-hidden">
+                    <p className="text-[9px] font-black text-emerald-600/60 uppercase">No Carrinho</p>
+                    <p className="text-lg font-black text-emerald-700">{shoppingStats.cartCount} itens</p>
+                    <p className="text-[10px] font-bold text-emerald-600">R$ {shoppingStats.cartValue.toFixed(2)}</p>
+                  </div>
+                </div>
+
+                {shoppingStats.topPending.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[9px] font-black text-slate-400 uppercase ml-1">Próximos Itens:</p>
+                    {shoppingStats.topPending.map(item => (
+                      <div key={item.id} className="flex items-center justify-between bg-white border border-slate-50 p-2 px-3 rounded-xl shadow-sm">
+                        <span className="text-xs font-bold text-slate-600">{item.name}</span>
+                        <span className="text-[10px] font-black text-slate-400">{item.quantity}{item.unit}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Barra de Consumo de Renda */}
+              <div className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col justify-center">
+                <div className="flex justify-between items-center mb-6 text-nowrap overflow-hidden">
+                  <h4 className="font-black text-slate-800 text-xs uppercase tracking-widest flex items-center gap-2">
+                    <TrendingDown size={16} className="text-red-500" /> Consumo Renda
+                  </h4>
+                  <span className={`text-sm font-black ${stats.perc > 85 ? 'text-red-600' : 'text-blue-600'}`}>{stats.perc.toFixed(1)}%</span>
+                </div>
+                <div className="w-full bg-slate-100 h-6 rounded-full overflow-hidden p-1 shadow-inner">
+                  <div className={`h-full rounded-full transition-all duration-1000 ${stats.perc > 85 ? 'bg-red-500' : 'bg-blue-600'}`} style={{ width: `${stats.perc}%` }}></div>
+                </div>
+                <p className="text-[10px] text-slate-400 font-bold text-center mt-6 uppercase tracking-wider">
+                  {stats.perc >= 100 ? "Orçamento Esgotado!" : "Dentro do Planeamento"}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* FINANCES VIEW */}
+        {activeTab === 'finances' && (
+          <div className="animate-in slide-in-from-right-4 duration-500 space-y-10">
+            <h2 className="text-3xl font-black text-slate-800">Fluxo Financeiro</h2>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Entradas */}
+              <div className="space-y-4">
+                <h4 className="text-xs font-black uppercase text-emerald-600 tracking-widest ml-2">Histórico de Entradas</h4>
+                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden divide-y">
+                  {incomes.map(item => (
+                    <div key={item.id} className="p-6 flex justify-between items-center group">
+                      <div>
+                        <p className="font-bold text-slate-800 text-sm">{item.title}</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase">{item.date} • {item.category}</p>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <span className="font-black text-emerald-600">R$ {item.amount.toFixed(2)}</span>
+                        <button onClick={() => setIncomes(incomes.filter(i => i.id !== item.id))} className="text-slate-200 hover:text-red-500"><Trash2 size={16}/></button>
+                      </div>
+                    </div>
+                  ))}
+                  {incomes.length === 0 && <div className="p-12 text-center text-slate-300 text-xs italic">Sem rendimentos</div>}
+                </div>
+              </div>
+              {/* Saídas */}
+              <div className="space-y-4">
+                <h4 className="text-xs font-black uppercase text-red-600 tracking-widest ml-2">Histórico de Saídas</h4>
+                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden divide-y">
+                  {expenses.map(item => (
+                    <div key={item.id} className="p-6 flex justify-between items-center group">
+                      <div>
+                        <p className="font-bold text-slate-800 text-sm">{item.title}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-[10px] text-slate-400 font-bold uppercase">{item.date}</p>
+                          <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${item.category === 'Farmácia' ? 'bg-purple-100 text-purple-600' : 'bg-slate-100 text-slate-500'}`}>{item.category}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <span className="font-black text-red-600">R$ {item.amount.toFixed(2)}</span>
+                        <button onClick={() => setExpenses(expenses.filter(i => i.id !== item.id))} className="text-slate-200 hover:text-red-500"><Trash2 size={16}/></button>
+                      </div>
+                    </div>
+                  ))}
+                  {expenses.length === 0 && <div className="p-12 text-center text-slate-300 text-xs italic">Sem despesas</div>}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SHOPPING LIST VIEW */}
+        {activeTab === 'shopping' && (
+          <div className="max-w-3xl mx-auto animate-in slide-in-from-right-4 duration-500 space-y-8">
+            <header className="flex justify-between items-end">
+              <div>
+                <h2 className="text-3xl font-black text-slate-800 tracking-tight">Lista de Compras</h2>
+                <p className="text-slate-400 font-bold text-sm">Gere as tuas necessidades de casa.</p>
+              </div>
+              {shoppingStats.cartValue > 0 && (
+                <button onClick={finalizeShopping} className="bg-slate-900 text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-2 shadow-lg active:scale-95 transition-all">
+                  <Receipt size={18} /> Finalizar (R$ {shoppingStats.cartValue.toFixed(2)})
+                </button>
+              )}
+            </header>
+
+            {/* FORMULÁRIO DE ADIÇÃO */}
+            <form onSubmit={handleAddShopItem} className="bg-white p-6 md:p-8 rounded-[3rem] border border-slate-200 shadow-sm space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+                <div className="sm:col-span-5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-1 block">Nome do Produto</label>
+                  <input required type="text" value={newItemName} onChange={e => setNewItemName(e.target.value)} className="w-full px-5 py-3.5 rounded-2xl bg-slate-50 border border-slate-100 font-bold outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ex: Maçãs, Leite..." />
+                </div>
+                <div className="sm:col-span-3">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-1 block">Preço ({newItemUnit === 'g' ? 'Kg' : 'Un'})</label>
+                  <input type="number" step="0.01" value={newItemPrice} onChange={e => setNewItemPrice(e.target.value)} className="w-full px-5 py-3.5 rounded-2xl bg-slate-50 border border-slate-100 font-bold outline-none" placeholder="0.00" />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-1 block">Qtd</label>
+                  <input type="number" min="1" value={newItemQty} onChange={e => setNewItemQty(e.target.value)} className="w-full px-5 py-3.5 rounded-2xl bg-slate-50 border border-slate-100 font-bold outline-none" />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-1 block">Unidade</label>
+                  <select value={newItemUnit} onChange={e => { setNewItemUnit(e.target.value); if(e.target.value === 'g') setNewItemQty(500); }} className="w-full px-3 py-3.5 rounded-2xl bg-slate-50 border border-slate-100 font-black outline-none">
+                    <option value="un">un</option><option value="g">g</option><option value="kg">kg</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+                <div className="flex gap-2 w-full sm:w-auto">
+                  <button type="button" onClick={() => setNewItemCategory('Alimentação')} className={`flex-1 sm:flex-none px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${newItemCategory === 'Alimentação' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-100 text-slate-400'}`}>Alimentação</button>
+                  <button type="button" onClick={() => setNewItemCategory('Farmácia')} className={`flex-1 sm:flex-none px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${newItemCategory === 'Farmácia' ? 'bg-purple-600 border-purple-600 text-white' : 'bg-white border-slate-100 text-slate-400'}`}>Farmácia</button>
+                  <button type="button" onClick={() => setNewItemIsBulk(!newItemIsBulk)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase border-2 flex items-center gap-2 ${newItemIsBulk ? 'bg-orange-500 border-orange-500 text-white' : 'border-slate-100 text-slate-400'}`}>
+                    <Package size={14} /> Fardo
+                  </button>
+                </div>
+                <button type="submit" className="w-full sm:w-auto bg-blue-600 text-white px-10 py-4 rounded-2xl font-black text-sm shadow-xl active:scale-95 transition-all">Adicionar Item</button>
+              </div>
+            </form>
+
+            {/* LISTAGEM DE ITENS */}
+            <div className="space-y-8 pb-10">
+              <section className="space-y-4">
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Itens em Falta</h4>
+                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden divide-y">
+                  {shoppingItems.filter(i => !i.completed).map(item => (
+                    <div key={item.id} className="p-6 flex items-center gap-4 group hover:bg-slate-50 transition-colors">
+                      <button onClick={() => toggleShopItem(item.id)} className="text-slate-200 hover:text-blue-500 transition-colors shrink-0">
+                        <Circle size={28} />
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-800 truncate">{item.name}</span>
+                          {item.isBulk && <span className="bg-orange-100 text-orange-600 text-[8px] font-black uppercase px-1.5 py-0.5 rounded">Fardo</span>}
+                          {item.category === 'Farmácia' && <Pill size={12} className="text-purple-400" />}
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-bold">R$ {item.price.toFixed(2)} / {item.unit === 'g' ? 'kg' : 'un'}</p>
+                      </div>
+                      <div className="flex items-center bg-slate-100 rounded-xl px-1">
+                        <button onClick={() => updateQty(item.id, -1)} className="p-1.5 text-slate-400 hover:text-slate-600"><Minus size={14}/></button>
+                        <span className="px-2 text-[10px] font-black text-slate-600 min-w-[40px] text-center">{item.quantity}{item.unit}</span>
+                        <button onClick={() => updateQty(item.id, 1)} className="p-1.5 text-slate-400 hover:text-slate-600"><Plus size={14}/></button>
+                      </div>
+                      <div className="text-right min-w-[90px]">
+                        <p className="font-black text-sm">R$ {((item.price * item.quantity) / (item.unit === 'g' ? 1000 : 1)).toFixed(2)}</p>
+                        <button onClick={() => deleteShopItem(item.id)} className="text-[9px] font-black text-slate-300 uppercase hover:text-red-500">Remover</button>
+                      </div>
+                    </div>
+                  ))}
+                  {shoppingItems.filter(i => !i.completed).length === 0 && <div className="p-14 text-center text-slate-300 text-xs italic">Tudo comprado!</div>}
+                </div>
+              </section>
+
+              {shoppingItems.some(i => i.completed) && (
+                <section className="space-y-4">
+                  <div className="flex justify-between items-end px-2">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Já no Carrinho</h4>
+                    <span className="text-xl font-black text-emerald-600">Subtotal: R$ {shoppingStats.cartValue.toFixed(2)}</span>
+                  </div>
+                  <div className="bg-slate-100/40 rounded-[2.5rem] border border-slate-200/50 overflow-hidden divide-y divide-slate-200/20">
+                    {shoppingItems.filter(i => i.completed).map(item => (
+                      <div key={item.id} className="p-6 flex items-center gap-4 opacity-50 grayscale">
+                        <button onClick={() => toggleShopItem(item.id)} className="text-emerald-500 shrink-0">
+                          <CheckCircle2 size={28} />
+                        </button>
+                        <div className="flex-1">
+                          <p className="font-bold text-sm line-through">{item.name}</p>
+                          <p className="text-[10px] font-bold">{item.quantity}{item.unit} • R$ {item.price.toFixed(2)}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-black text-sm">R$ {((item.price * item.quantity) / (item.unit === 'g' ? 1000 : 1)).toFixed(2)}</p>
+                          <button onClick={() => deleteShopItem(item.id)} className="text-[9px] font-black text-slate-400 uppercase">Apagar</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
+          </div>
+        )}
+
+      </main>
+
+      {/* MODAL FINANCEIRO */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white w-full max-w-lg rounded-t-[3rem] sm:rounded-[3rem] shadow-2xl animate-in slide-in-from-bottom duration-300">
+             <div className={`p-8 border-b flex justify-between items-center ${transactionType === 'income' ? 'bg-emerald-50' : 'bg-red-50'}`}>
+              <h3 className="text-2xl font-black text-slate-800 tracking-tight">{transactionType === 'income' ? 'Novo Ganho' : 'Novo Gasto'}</h3>
+              <button onClick={() => setIsModalOpen(false)} className="bg-white p-2 rounded-2xl text-slate-400 border border-slate-100"><X size={20}/></button>
+            </div>
+            <form onSubmit={handleAddTransaction} className="p-10 space-y-6">
+              <input required autoFocus type="text" value={newTransaction.title} onChange={e => setNewTransaction({...newTransaction, title: e.target.value})} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border border-slate-100 font-bold outline-none focus:ring-2 focus:ring-blue-500" placeholder="O que foi?" />
+              <div className="grid grid-cols-2 gap-4">
+                <input required type="number" step="0.01" value={newTransaction.amount} onChange={e => setNewTransaction({...newTransaction, amount: e.target.value})} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border border-slate-100 font-black outline-none" placeholder="0.00" />
+                <select value={newTransaction.category} onChange={e => setNewTransaction({...newTransaction, category: e.target.value})} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border border-slate-100 font-bold outline-none">
+                  <option>Alimentação</option><option>Farmácia</option><option>Habitação</option><option>Lazer</option><option>Trabalho</option><option>Extra</option>
+                </select>
+              </div>
+              <button className={`w-full py-5 rounded-[2.5rem] font-black text-lg text-white shadow-xl ${transactionType === 'income' ? 'bg-emerald-600 shadow-emerald-100' : 'bg-red-600 shadow-red-100'}`}>Confirmar Registo</button>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
