@@ -8,12 +8,12 @@ import {
 } from 'lucide-react';
 
 // --- CONFIGURAÇÕES DO APLICATIVO ---
-const APP_NAME = "CasaGest Pro";
+const APP_NAME = "index";
 const THEME_COLOR = "#2563eb";
 const STORAGE_KEYS = {
-  INCOMES: 'casagest_apk_incomes',
-  EXPENSES: 'casagest_apk_expenses',
-  SHOPPING: 'casagest_apk_shopping'
+  INCOMES: 'index_incomes',
+  EXPENSES: 'index_expenses',
+  SHOPPING: 'index_shopping'
 };
 
 const CATEGORIES = ['Alimentação', 'Farmácia', 'Habitação', 'Lazer', 'Trabalho', 'Extra', 'Outros'];
@@ -57,9 +57,11 @@ export default function App() {
     name: '', price: 0, quantity: 1, unit: 'un', isBulk: false, category: 'Alimentação', favorite: false
   });
 
-  // --- LÓGICA DE APK / PWA / OFFLINE ---
+  // --- LÓGICA DE APK / PWA / WCAG ---
   useEffect(() => {
-    // 1. Otimização de Viewport para APK (Evita zoom e foca na safe area)
+    document.title = APP_NAME;
+    
+    // Viewport para APK e Mobile
     let metaViewport = document.querySelector('meta[name="viewport"]');
     if (!metaViewport) {
       metaViewport = document.createElement('meta');
@@ -68,62 +70,36 @@ export default function App() {
     }
     metaViewport.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover";
 
-    // 2. Cor da barra de status do Android
-    let themeMeta = document.querySelector('meta[name="theme-color"]');
-    if (!themeMeta) {
-      themeMeta = document.createElement('meta');
-      themeMeta.name = "theme-color";
-      document.head.appendChild(themeMeta);
-    }
-    themeMeta.content = THEME_COLOR;
-
-    // 3. Manifesto Dinâmico para Instalação Nativa
+    // Manifesto Dinâmico
     const manifest = {
       name: APP_NAME,
-      short_name: "CasaGest",
-      description: "Organização financeira e compras domésticas.",
+      short_name: APP_NAME,
       start_url: "/",
       display: "standalone",
       orientation: "portrait",
       background_color: "#F8FAFC",
       theme_color: THEME_COLOR,
       lang: "pt-BR",
-      icons: [
-        { 
-          src: "https://cdn-icons-png.flaticon.com/512/2845/2845811.png", 
-          sizes: "512x512", 
-          type: "image/png",
-          purpose: "any maskable"
-        }
-      ]
+      icons: [{ src: "https://cdn-icons-png.flaticon.com/512/2845/2845811.png", sizes: "512x512", type: "image/png", purpose: "any maskable" }]
     };
     const manifestLink = document.createElement('link');
     manifestLink.rel = 'manifest';
     manifestLink.href = URL.createObjectURL(new Blob([JSON.stringify(manifest)], { type: 'application/json' }));
     document.head.appendChild(manifestLink);
 
-    // 4. Registro de Service Worker básico (necessário para ser "App-Ready")
+    // SW para APK Offline Ready
     if ('serviceWorker' in navigator) {
-      const swCode = `
-        self.addEventListener('install', e => self.skipWaiting());
-        self.addEventListener('fetch', e => e.respondWith(fetch(e.request).catch(() => caches.match(e.request))));
-      `;
+      const swCode = `self.addEventListener('fetch', e => e.respondWith(fetch(e.request).catch(() => caches.match(e.request))));`;
       const swBlob = new Blob([swCode], { type: 'text/javascript' });
-      const swUrl = URL.createObjectURL(swBlob);
-      navigator.serviceWorker.register(swUrl).catch(() => {});
+      navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(() => {});
     }
 
-    // 5. Captura do evento de instalação
-    const handleInstallPrompt = (e) => {
-      e.preventDefault();
-      setInstallPrompt(e);
-    };
-    window.addEventListener('beforeinstallprompt', handleInstallPrompt);
-
-    return () => window.removeEventListener('beforeinstallprompt', handleInstallPrompt);
+    const handleInstall = (e) => { e.preventDefault(); setInstallPrompt(e); };
+    window.addEventListener('beforeinstallprompt', handleInstall);
+    return () => window.removeEventListener('beforeinstallprompt', handleInstall);
   }, []);
 
-  // --- MÁSCARA MONETÁRIA ---
+  // --- MÁSCARA MONETÁRIA AUTOMÁTICA ---
   const handleCurrencyInput = (value, setter, field) => {
     const cleanValue = value.replace(/\D/g, "");
     if (!cleanValue) {
@@ -138,8 +114,8 @@ export default function App() {
   const finance = useMemo(() => {
     const totalIn = incomes.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
     const totalOut = expenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
-    return { totalIn, totalOut, balance: totalIn - totalOut, 
-             perc: totalIn > 0 ? Math.min((totalOut / totalIn) * 100, 100) : (totalOut > 0 ? 100 : 0) };
+    const perc = totalIn > 0 ? Math.min((totalOut / totalIn) * 100, 100) : (totalOut > 0 ? 100 : 0);
+    return { totalIn, totalOut, balance: totalIn - totalOut, perc };
   }, [incomes, expenses]);
 
   const shopping = useMemo(() => {
@@ -169,13 +145,7 @@ export default function App() {
 
   const finalizeShopping = useCallback(() => {
     if (shopping.cartValue <= 0) return;
-    const expense = { 
-      id: Date.now(), 
-      title: `Compras (${new Date().toLocaleDateString('pt-BR')})`, 
-      amount: shopping.cartValue, 
-      category: 'Alimentação', 
-      date: new Date().toLocaleDateString('pt-BR') 
-    };
+    const expense = { id: Date.now(), title: `Compras index (${new Date().toLocaleDateString('pt-BR')})`, amount: shopping.cartValue, category: 'Alimentação', date: new Date().toLocaleDateString('pt-BR') };
     setExpenses(prev => [expense, ...prev]);
     setShoppingItems(prev => prev.filter(i => !i.completed));
     setActiveTab('finances');
@@ -183,90 +153,65 @@ export default function App() {
 
   const clearShoppingList = () => setShoppingItems(prev => prev.filter(item => item.favorite));
 
-  const updateItemQty = (id, delta) => {
-    setShoppingItems(prev => prev.map(item => {
-      if (item.id === id) {
-        const step = item.unit === 'g' ? 50 : 1;
-        return { ...item, quantity: Math.max(step, item.quantity + (delta * step)) };
-      }
-      return item;
-    }));
-  };
-
-  const toggleItemStatus = (id) => setShoppingItems(prev => prev.map(item => item.id === id ? { ...item, completed: !item.completed } : item));
-  const toggleItemFavorite = (id) => setShoppingItems(prev => prev.map(item => item.id === id ? { ...item, favorite: !item.favorite } : item));
-  const deleteShopItem = (id) => setShoppingItems(prev => prev.filter(item => item.id !== id));
-
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 lg:pl-72 pb-safe lg:pb-0 font-sans select-none overflow-x-hidden touch-pan-y">
       
-      {/* SIDEBAR (Desktop) */}
-      <aside className="fixed left-0 top-0 h-full w-72 bg-white border-r border-slate-200 hidden lg:flex flex-col p-8 z-40">
+      {/* SIDEBAR */}
+      <aside className="fixed left-0 top-0 h-full w-72 bg-white border-r border-slate-200 hidden lg:flex flex-col p-8 z-40" role="complementary">
         <div className="flex items-center gap-4 mb-12">
-          <div className="bg-blue-600 p-2.5 rounded-2xl text-white shadow-lg shadow-blue-200" aria-hidden="true">
-            <Wallet size={28} />
-          </div>
+          <div className="bg-blue-600 p-2.5 rounded-2xl text-white shadow-lg" aria-hidden="true"><Wallet size={28} /></div>
           <h1 className="text-2xl font-black tracking-tight">{APP_NAME}</h1>
         </div>
         <nav className="space-y-2 flex-1" aria-label="Menu principal">
-          <SidebarBtn active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<LayoutDashboard size={22}/>} label="Painel Geral" />
+          <SidebarBtn active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<LayoutDashboard size={22}/>} label="Início" />
           <SidebarBtn active={activeTab === 'finances'} onClick={() => setActiveTab('finances')} icon={<History size={22}/>} label="Finanças" />
-          <SidebarBtn active={activeTab === 'shopping'} onClick={() => setActiveTab('shopping')} icon={<ShoppingCart size={22}/>} label="Lista de Compras" />
+          <SidebarBtn active={activeTab === 'shopping'} onClick={() => setActiveTab('shopping')} icon={<ShoppingCart size={22}/>} label="Compras" />
         </nav>
       </aside>
 
-      {/* MOBILE NAV (Com padding para Android Gestures) */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-slate-100 flex justify-around p-3 lg:hidden z-50 rounded-t-[2.5rem] shadow-2xl pb-safe">
+      {/* MOBILE NAV */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-slate-100 flex justify-around p-3 lg:hidden z-50 rounded-t-[2.5rem] shadow-2xl pb-safe" aria-label="Navegação móvel">
         <MobileBtn active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={<LayoutDashboard size={24}/>} label="Início" />
         <MobileBtn active={activeTab === 'finances'} onClick={() => setActiveTab('finances')} icon={<History size={24}/>} label="Finanças" />
         <MobileBtn active={activeTab === 'shopping'} onClick={() => setActiveTab('shopping')} icon={<ShoppingCart size={24}/>} label="Compras" />
       </nav>
 
-      {/* MAIN CONTENT */}
+      {/* CONTEÚDO */}
       <main className="max-w-5xl mx-auto p-5 md:p-10 lg:p-12" id="main-content">
         
-        {/* DASHBOARD */}
+        {/* DASHBOARD - RESUMO APENAS */}
         {activeTab === 'dashboard' && (
           <div className="space-y-8 animate-in fade-in duration-500">
             <header className="pt-4 sm:pt-0">
-              <h2 className="text-4xl font-black text-slate-800 tracking-tight">Resumo 👋</h2>
-              <p className="text-slate-500 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Sua conta atualizada</p>
+              <h2 className="text-4xl font-black text-slate-800 tracking-tight">Painel 👋</h2>
+              <p className="text-slate-500 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Bem-vindo ao {APP_NAME}</p>
             </header>
 
             {installPrompt && (
-              <button 
-                className="w-full bg-gradient-to-br from-blue-600 to-blue-700 p-6 rounded-[2.5rem] text-white shadow-xl flex items-center justify-between hover:scale-[1.02] active:scale-95 transition-all outline-none" 
-                onClick={() => installPrompt.prompt()}
-                aria-label="Instalar aplicativo"
-              >
+              <button className="w-full bg-gradient-to-br from-blue-600 to-blue-700 p-6 rounded-[2.5rem] text-white shadow-xl flex items-center justify-between hover:scale-[1.02] active:scale-95 transition-all outline-none" onClick={() => installPrompt.prompt()}>
                 <div className="flex items-center gap-4">
-                  <div className="bg-white/20 p-3 rounded-2xl"><Smartphone size={24} /></div>
-                  <div>
-                    <h4 className="font-bold text-sm">Instalar App no Celular</h4>
-                    <p className="text-[10px] opacity-90 uppercase font-black tracking-widest">Transformar em Aplicativo Nativo</p>
-                  </div>
+                  <div className="bg-white/20 p-3 rounded-2xl" aria-hidden="true"><Smartphone size={24} /></div>
+                  <div className="text-left"><h4 className="font-bold text-sm">Instalar {APP_NAME}</h4><p className="text-[10px] opacity-90 uppercase font-black">Adicionar à tela inicial</p></div>
                 </div>
-                <PlusCircle size={24} />
+                <PlusCircle size={24} aria-hidden="true" />
               </button>
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <StatCard label="Ganhos Mensais" value={finance.totalIn} type="income" icon={<ArrowUpCircle size={24}/>} />
-              <StatCard label="Gastos Totais" value={finance.totalOut} type="expense" icon={<ArrowDownCircle size={24}/>} />
-              <StatCard label="Saldo Disponível" value={finance.balance} type="balance" icon={<Wallet size={24}/>} />
+              <StatCard label="Entradas" value={finance.totalIn} type="income" icon={<ArrowUpCircle size={24}/>} />
+              <StatCard label="Saídas" value={finance.totalOut} type="expense" icon={<ArrowDownCircle size={24}/>} />
+              <StatCard label="Saldo" value={finance.balance} type="balance" icon={<Wallet size={24}/>} />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <section className="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-sm" aria-labelledby="shopping-summary">
                 <div className="flex items-center justify-between mb-8">
-                  <h3 id="shopping-summary" className="font-black text-slate-800 text-xs uppercase tracking-widest flex items-center gap-2">
-                    <ShoppingBag size={16} className="text-blue-500" /> Resumo de Compras
-                  </h3>
-                  <button onClick={() => setActiveTab('shopping')} className="text-[10px] font-black text-blue-600 hover:underline">VER TUDO</button>
+                  <h3 id="shopping-summary" className="font-black text-slate-800 text-xs uppercase tracking-widest flex items-center gap-2"><ShoppingBag size={16} className="text-blue-500" /> Resumo Compras</h3>
+                  <button onClick={() => setActiveTab('shopping')} className="text-[10px] font-black text-blue-600 hover:underline">ABRIR</button>
                 </div>
                 <div className="grid grid-cols-2 gap-4 mb-6">
                   <div className="bg-slate-50 p-4 rounded-3xl border border-slate-100">
-                    <p className="text-[9px] font-black text-slate-500 uppercase">Falta Comprar</p>
+                    <p className="text-[9px] font-black text-slate-500 uppercase">A Comprar</p>
                     <p className="text-2xl font-black">{shopping.pendingCount}</p>
                     <p className="text-[10px] font-bold text-slate-500">{formatCurrency(shopping.pendingValue)}</p>
                   </div>
@@ -279,25 +224,24 @@ export default function App() {
                   {shopping.urgent.map(i => (
                     <div key={i.id} className="flex justify-between items-center p-3 bg-slate-50/50 rounded-2xl border border-slate-100">
                       <div className="flex items-center gap-2">
-                        {i.favorite && <Star size={10} className="fill-amber-500 text-amber-500" />}
+                        {i.favorite && <Star size={10} className="fill-amber-500 text-amber-500" aria-label="Favorito" />}
                         <span className="text-xs font-bold text-slate-700 truncate">{i.name}</span>
                       </div>
                       <span className="text-[10px] font-black text-slate-500 shrink-0">{i.quantity}{i.unit}</span>
                     </div>
                   ))}
-                  {shopping.urgent.length === 0 && <p className="text-center text-xs text-slate-500 py-4 italic">Lista vazia</p>}
+                  {shopping.urgent.length === 0 && <p className="text-center text-xs text-slate-400 py-4 italic">Nenhum item pendente</p>}
                 </div>
               </section>
 
               <section className="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-sm flex flex-col justify-center">
                 <div className="flex justify-between items-center mb-6">
-                  <h3 className="font-black text-slate-800 text-xs uppercase tracking-widest">Utilização da Renda</h3>
+                  <h3 className="font-black text-slate-800 text-xs uppercase tracking-widest">Uso da Renda</h3>
                   <span className={`text-xs font-black px-2 py-1 rounded-md ${finance.perc > 85 ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>{finance.perc.toFixed(1)}%</span>
                 </div>
                 <div className="w-full bg-slate-100 h-6 rounded-full overflow-hidden p-1 shadow-inner" role="progressbar">
                   <div className={`h-full rounded-full transition-all duration-1000 ${finance.perc > 85 ? 'bg-red-500' : 'bg-blue-600'}`} style={{ width: `${finance.perc}%` }}></div>
                 </div>
-                <p className="text-[11px] text-slate-500 mt-8 text-center italic">Controle seu orçamento para viver com tranquilidade.</p>
               </section>
             </div>
           </div>
@@ -307,10 +251,10 @@ export default function App() {
         {activeTab === 'finances' && (
           <div className="animate-in slide-in-from-right-4 duration-500 space-y-10">
             <header className="flex flex-col md:flex-row justify-between items-center gap-6">
-              <h2 className="text-3xl font-black text-slate-800 tracking-tight">Finanças</h2>
+              <h2 className="text-3xl font-black text-slate-800 tracking-tight">Histórico</h2>
               <div className="flex gap-3 w-full sm:w-auto">
-                <button onClick={() => { setTransactionType('income'); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-emerald-600 text-white px-6 md:px-8 py-3.5 rounded-2xl font-black text-sm shadow-xl shadow-emerald-100 flex items-center justify-center gap-2 active:scale-95 transition-all"><Plus size={20}/> Novo Ganho</button>
-                <button onClick={() => { setTransactionType('expense'); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-red-600 text-white px-6 md:px-8 py-3.5 rounded-2xl font-black text-sm shadow-xl shadow-red-100 flex items-center justify-center gap-2 active:scale-95 transition-all"><Plus size={20}/> Novo Gasto</button>
+                <button onClick={() => { setTransactionType('income'); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-emerald-600 text-white px-6 md:px-8 py-3.5 rounded-2xl font-black text-sm shadow-xl active:scale-95 transition-all outline-none focus:ring-4 focus:ring-emerald-200"><Plus size={20}/> Ganho</button>
+                <button onClick={() => { setTransactionType('expense'); setIsModalOpen(true); }} className="flex-1 sm:flex-none bg-red-600 text-white px-6 md:px-8 py-3.5 rounded-2xl font-black text-sm shadow-xl active:scale-95 transition-all outline-none focus:ring-4 focus:ring-red-200"><Plus size={20}/> Gasto</button>
               </div>
             </header>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -324,90 +268,44 @@ export default function App() {
         {activeTab === 'shopping' && (
           <div className="max-w-3xl mx-auto animate-in slide-in-from-right-4 duration-500 space-y-8">
             <header className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
-              <div>
-                <h2 className="text-3xl font-black text-slate-800 tracking-tight">Lista de Compras</h2>
-                <p className="text-slate-500 font-bold text-sm">Controle seus suprimentos de casa.</p>
-              </div>
+              <div><h2 className="text-3xl font-black text-slate-800 tracking-tight">Lista</h2><p className="text-slate-500 font-bold text-sm">Controle de casa.</p></div>
               <div className="flex gap-2 w-full sm:w-auto">
-                <button onClick={clearShoppingList} className="bg-white border border-slate-200 text-slate-600 px-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 shadow-sm hover:text-red-500 active:scale-95 transition-all outline-none" title="Limpar lista: Mantém favoritos"><Eraser size={18} /> Limpar</button>
-                {shopping.cartValue > 0 && (
-                  <button onClick={finalizeShopping} className="bg-slate-900 text-white px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex-1 flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all outline-none">
-                    <Receipt size={18} /> FINALIZAR ({formatCurrency(shopping.cartValue)})
-                  </button>
-                )}
+                <button onClick={clearShoppingList} className="bg-white border border-slate-200 text-slate-600 px-4 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center gap-2 shadow-sm hover:text-red-500 active:scale-95 outline-none transition-all"><Eraser size={18} /> Limpar</button>
+                {shopping.cartValue > 0 && <button onClick={finalizeShopping} className="bg-slate-900 text-white px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest flex-1 flex items-center justify-center gap-2 shadow-lg active:scale-95 outline-none"><Receipt size={18} /> FINALIZAR ({formatCurrency(shopping.cartValue)})</button>}
               </div>
             </header>
 
-            <form onSubmit={handleAddShopItem} className="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-sm space-y-6">
+            <form onSubmit={handleAddShopItem} className="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-sm space-y-6" aria-label="Novo item de compra">
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
-                <div className="sm:col-span-5">
-                  <label htmlFor="shop-name" className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2 mb-1 block">Nome do item</label>
-                  <input id="shop-name" required type="text" value={newShopItem.name} onChange={e => setNewShopItem({...newShopItem, name: e.target.value})} className="w-full px-5 py-4 rounded-2xl bg-slate-50 border-none font-bold focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ex: Arroz, Leite..." />
-                </div>
-                <div className="sm:col-span-3">
-                  <label htmlFor="shop-price" className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2 mb-1 block">Preço ({newShopItem.unit === 'g' ? 'Kg' : 'Un'})</label>
-                  <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold text-xs" aria-hidden="true">R$</span>
-                    <input id="shop-price" type="text" inputMode="numeric" value={formatInputDisplay(newShopItem.price)} onChange={e => handleCurrencyInput(e.target.value, setNewShopItem, 'price')} className="w-full pl-10 pr-4 py-4 rounded-2xl bg-slate-50 border-none font-black outline-none focus:ring-2 focus:ring-blue-500" placeholder="0,00" />
-                  </div>
-                </div>
-                <div className="sm:col-span-2">
-                  <label htmlFor="shop-qty" className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2 mb-1 block">Qtd</label>
-                  <input id="shop-qty" type="number" value={newShopItem.quantity} onChange={e => setNewShopItem({...newShopItem, quantity: Number(e.target.value)})} className="w-full px-5 py-4 rounded-2xl bg-slate-50 border-none font-bold outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div className="sm:col-span-2">
-                  <label htmlFor="shop-unit" className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2 mb-1 block">Unidade</label>
-                  <select id="shop-unit" value={newShopItem.unit} onChange={e => setNewShopItem({...newShopItem, unit: e.target.value, quantity: e.target.value === 'g' ? 500 : 1})} className="w-full px-3 py-4 rounded-2xl bg-slate-50 border-none font-black outline-none focus:ring-2 focus:ring-blue-500 appearance-none">
-                    <option value="un">un</option><option value="g">g</option><option value="kg">kg</option>
-                  </select>
-                </div>
+                <div className="sm:col-span-5"><label htmlFor="shop-n" className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2 mb-1 block">Nome</label><input id="shop-n" required type="text" value={newShopItem.name} onChange={e => setNewShopItem({...newShopItem, name: e.target.value})} className="w-full px-5 py-4 rounded-2xl bg-slate-50 border-none font-bold focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ex: Maçã..." /></div>
+                <div className="sm:col-span-3 relative"><label htmlFor="shop-p" className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2 mb-1 block">Preço (Kg/Un)</label><div className="relative"><span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold text-xs">R$</span><input id="shop-p" type="text" inputMode="numeric" value={formatInputDisplay(newShopItem.price)} onChange={e => handleCurrencyInput(e.target.value, setNewShopItem, 'price')} className="w-full pl-10 pr-4 py-4 rounded-2xl bg-slate-50 border-none font-black outline-none focus:ring-2 focus:ring-blue-500" placeholder="0,00" /></div></div>
+                <div className="sm:col-span-2"><label htmlFor="shop-q" className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2 mb-1 block">Qtd</label><input id="shop-q" type="number" value={newShopItem.quantity} onChange={e => setNewShopItem({...newShopItem, quantity: Number(e.target.value)})} className="w-full px-5 py-4 rounded-2xl bg-slate-50 border-none font-bold outline-none focus:ring-2 focus:ring-blue-500" /></div>
+                <div className="sm:col-span-2"><label htmlFor="shop-u" className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2 mb-1 block">Un</label><select id="shop-u" value={newShopItem.unit} onChange={e => setNewShopItem({...newShopItem, unit: e.target.value, quantity: e.target.value === 'g' ? 500 : 1})} className="w-full px-3 py-4 rounded-2xl bg-slate-50 border-none font-black outline-none focus:ring-2 focus:ring-blue-500 appearance-none"><option value="un">un</option><option value="g">g</option><option value="kg">kg</option></select></div>
               </div>
               <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-                <div className="flex flex-wrap gap-2">
-                  <CatBtn active={newShopItem.category === 'Alimentação'} label="Alimentação" onClick={() => setNewShopItem({...newShopItem, category: 'Alimentação'})} />
-                  <CatBtn active={newShopItem.category === 'Farmácia'} label="Farmácia" onClick={() => setNewShopItem({...newShopItem, category: 'Farmácia'})} />
-                  <button type="button" onClick={() => setNewShopItem({...newShopItem, isBulk: !newShopItem.isBulk})} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase border-2 transition-all ${newShopItem.isBulk ? 'bg-orange-500 border-orange-500 text-white' : 'border-slate-100 text-slate-500'}`}><Package size={14} className="inline mr-1" /> Fardo</button>
-                  <button type="button" onClick={() => setNewShopItem({...newShopItem, favorite: !newShopItem.favorite})} className={`px-4 py-2 rounded-xl border-2 transition-all ${newShopItem.favorite ? 'bg-amber-500 border-amber-500 text-white' : 'border-slate-100 text-slate-500'}`} aria-label="Favoritar"><Star size={14} className={`inline ${newShopItem.favorite ? "fill-white" : ""}`} /></button>
-                </div>
-                <button type="submit" className="w-full sm:w-auto bg-blue-600 text-white px-10 py-4 rounded-2xl font-black text-sm shadow-xl hover:bg-blue-700 active:scale-95 transition-all outline-none focus:ring-4 focus:ring-blue-100">Adicionar</button>
+                <div className="flex flex-wrap gap-2"><CatBtn active={newShopItem.category === 'Alimentação'} label="Alimentação" onClick={() => setNewShopItem({...newShopItem, category: 'Alimentação'})} /><CatBtn active={newShopItem.category === 'Farmácia'} label="Farmácia" onClick={() => setNewShopItem({...newShopItem, category: 'Farmácia'})} /><button type="button" onClick={() => setNewShopItem({...newShopItem, isBulk: !newShopItem.isBulk})} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase border-2 transition-all outline-none focus:ring-2 focus:ring-blue-500 ${newShopItem.isBulk ? 'bg-orange-500 border-orange-500 text-white' : 'border-slate-100 text-slate-500'}`} aria-pressed={newShopItem.isBulk}><Package size={14} className="inline mr-1" /> Fardo</button><button type="button" onClick={() => setNewShopItem({...newShopItem, favorite: !newShopItem.favorite})} className={`px-4 py-2 rounded-xl border-2 transition-all outline-none focus:ring-2 focus:ring-blue-500 ${newShopItem.favorite ? 'bg-amber-500 border-amber-500 text-white' : 'border-slate-100 text-slate-500'}`} aria-label="Favoritar" aria-pressed={newShopItem.favorite}><Star size={14} className={`inline ${newShopItem.favorite ? "fill-white" : ""}`} /></button></div>
+                <button type="submit" className="w-full sm:w-auto bg-blue-600 text-white px-10 py-4 rounded-2xl font-black text-sm shadow-xl hover:bg-blue-700 active:scale-95 outline-none transition-all focus:ring-4 focus:ring-blue-100">Adicionar</button>
               </div>
             </form>
 
-            <ShoppingSection title="Falta Comprar" items={shoppingItems.filter(i => !i.completed)} onToggle={toggleItemStatus} onDelete={deleteShopItem} onUpdateQty={updateItemQty} onFavorite={toggleItemFavorite} />
-            <ShoppingSection title="No Carrinho" items={shoppingItems.filter(i => i.completed)} isCart onToggle={toggleItemStatus} onDelete={deleteShopItem} onFavorite={toggleItemFavorite} />
+            <ShoppingSection title="Falta Comprar" items={shoppingItems.filter(i => !i.completed)} onToggle={id => setShoppingItems(prev => prev.map(item => item.id === id ? { ...item, completed: !item.completed } : item))} onDelete={id => setShoppingItems(prev => prev.filter(item => item.id !== id))} onUpdateQty={(id, delta) => setShoppingItems(prev => prev.map(item => { if (item.id === id) { const step = item.unit === 'g' ? 50 : 1; return { ...item, quantity: Math.max(step, item.quantity + (delta * step)) }; } return item; }))} onFavorite={id => setShoppingItems(prev => prev.map(item => item.id === id ? { ...item, favorite: !item.favorite } : item))} />
+            <ShoppingSection title="No Carrinho" items={shoppingItems.filter(i => i.completed)} isCart onToggle={id => setShoppingItems(prev => prev.map(item => item.id === id ? { ...item, completed: !item.completed } : item))} onDelete={id => setShoppingItems(prev => prev.filter(item => item.id !== id))} onFavorite={id => setShoppingItems(prev => prev.map(item => item.id === id ? { ...item, favorite: !item.favorite } : item))} />
           </div>
         )}
       </main>
 
       {/* MODAL FINANCEIRO */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="modal-title">
           <div className="bg-white w-full max-w-lg rounded-t-[3rem] sm:rounded-[3rem] shadow-2xl animate-in slide-in-from-bottom duration-300 overflow-hidden">
-            <div className={`p-10 border-b flex justify-between items-center ${transactionType === 'income' ? 'bg-emerald-50' : 'bg-red-50'}`}>
-              <h3 className="text-2xl font-black text-slate-800 tracking-tight">{transactionType === 'income' ? 'Novo Ganho' : 'Novo Gasto'}</h3>
-              <button onClick={() => setIsModalOpen(false)} className="bg-white p-2 rounded-2xl text-slate-500 border border-slate-100 active:scale-90 transition-all outline-none focus:ring-2 focus:ring-slate-300"><X size={20}/></button>
-            </div>
+            <div className={`p-10 border-b flex justify-between items-center ${transactionType === 'income' ? 'bg-emerald-50' : 'bg-red-50'}`}><h3 id="modal-title" className="text-2xl font-black text-slate-800 tracking-tight">{transactionType === 'income' ? 'Novo Ganho' : 'Novo Gasto'}</h3><button onClick={() => setIsModalOpen(false)} className="bg-white p-2 rounded-2xl text-slate-500 border border-slate-100 active:scale-90 outline-none transition-all focus:ring-2 focus:ring-slate-300" aria-label="Fechar"><X size={20}/></button></div>
             <form onSubmit={handleAddTransaction} className="p-10 space-y-6">
-              <div>
-                <label htmlFor="trans-title" className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2 mb-1 block">Descrição</label>
-                <input id="trans-title" required autoFocus type="text" value={newTransaction.title} onChange={e => setNewTransaction({...newTransaction, title: e.target.value})} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-none font-bold focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ex: Salário, Mercado..." />
-              </div>
+              <div><label htmlFor="t-title" className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2 mb-1 block">Descrição</label><input id="t-title" required autoFocus type="text" value={newTransaction.title} onChange={e => setNewTransaction({...newTransaction, title: e.target.value})} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-none font-bold focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Ex: Salário..." /></div>
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="trans-amount" className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2 mb-1 block">Valor</label>
-                  <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold text-xs" aria-hidden="true">R$</span>
-                    <input id="trans-amount" type="text" inputMode="numeric" value={formatInputDisplay(newTransaction.amount)} onChange={e => handleCurrencyInput(e.target.value, setNewTransaction, 'amount')} className="w-full pl-10 pr-4 py-4 rounded-2xl bg-slate-50 border-none font-black outline-none focus:ring-2 focus:ring-blue-500" placeholder="0,00" />
-                  </div>
-                </div>
-                <div>
-                  <label htmlFor="trans-cat" className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2 mb-1 block">Categoria</label>
-                  <select id="trans-cat" value={newTransaction.category} onChange={e => setNewTransaction({...newTransaction, category: e.target.value})} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-none font-bold outline-none focus:ring-2 focus:ring-blue-500">
-                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
+                <div><label htmlFor="t-amount" className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2 mb-1 block">Valor</label><div className="relative"><span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-bold text-xs" aria-hidden="true">R$</span><input id="t-amount" type="text" inputMode="numeric" value={formatInputDisplay(newTransaction.amount)} onChange={e => handleCurrencyInput(e.target.value, setNewTransaction, 'amount')} className="w-full pl-10 pr-4 py-4 rounded-2xl bg-slate-50 border-none font-black outline-none focus:ring-2 focus:ring-blue-500" placeholder="0,00" /></div></div>
+                <div><label htmlFor="t-cat" className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2 mb-1 block">Categoria</label><select id="t-cat" value={newTransaction.category} onChange={e => setNewTransaction({...newTransaction, category: e.target.value})} className="w-full px-6 py-4 rounded-2xl bg-slate-50 border-none font-bold outline-none focus:ring-2 focus:ring-blue-500">{CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
               </div>
-              <button className={`w-full py-5 rounded-[2.5rem] font-black text-lg text-white shadow-xl transition-all outline-none focus:ring-4 ${transactionType === 'income' ? 'bg-emerald-600 shadow-emerald-100' : 'bg-red-600 shadow-red-100'}`}>Confirmar</button>
+              <button className={`w-full py-5 rounded-[2.5rem] font-black text-lg text-white shadow-xl transition-all outline-none focus:ring-4 ${transactionType === 'income' ? 'bg-emerald-600 shadow-emerald-100 focus:ring-emerald-200' : 'bg-red-600 shadow-red-100 focus:ring-red-200'}`}>Confirmar</button>
             </form>
           </div>
         </div>
@@ -418,109 +316,22 @@ export default function App() {
 
 // --- SUB-COMPONENTES OTIMIZADOS ---
 function SidebarBtn({ active, icon, label, onClick }) {
-  return (
-    <button 
-      onClick={onClick} 
-      className={`w-full flex items-center gap-4 px-6 py-5 rounded-3xl font-bold transition-all outline-none focus:ring-2 focus:ring-blue-500 group select-none ${active ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-800'}`}
-    >
-      <span className={`transition-transform duration-300 ${active ? 'scale-110' : 'group-hover:translate-x-1'}`}>{icon}</span>
-      <span className="text-sm">{label}</span>
-    </button>
-  );
+  return <button onClick={onClick} className={`w-full flex items-center gap-4 px-6 py-5 rounded-3xl font-bold transition-all outline-none focus:ring-2 focus:ring-blue-500 group select-none ${active ? 'bg-blue-600 text-white shadow-xl shadow-blue-100' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-800'}`} aria-current={active ? 'page' : undefined}><span className={`transition-transform duration-300 ${active ? 'scale-110' : 'group-hover:translate-x-1'}`} aria-hidden="true">{icon}</span><span className="text-sm">{label}</span></button>;
 }
-
 function MobileBtn({ active, icon, label, onClick }) {
-  return (
-    <button 
-      onClick={onClick} 
-      className={`flex flex-col items-center justify-center gap-1 flex-1 py-3 transition-all outline-none focus:bg-slate-50 select-none ${active ? 'text-blue-600' : 'text-slate-600'}`}
-    >
-      <span aria-hidden="true">{icon}</span>
-      <span className="text-[9px] font-black uppercase tracking-widest">{label}</span>
-    </button>
-  );
+  return <button onClick={onClick} className={`flex flex-col items-center justify-center gap-1 flex-1 py-3 transition-all outline-none focus:bg-slate-50 select-none ${active ? 'text-blue-600' : 'text-slate-600'}`} aria-current={active ? 'page' : undefined}><span aria-hidden="true">{icon}</span><span className="text-[9px] font-black uppercase tracking-widest">{label}</span></button>;
 }
-
 function StatCard({ label, value, icon, type }) {
-  const styles = { 
-    income: 'bg-white text-emerald-700 border-slate-100', 
-    expense: 'bg-white text-red-700 border-slate-100', 
-    balance: 'bg-blue-600 text-white shadow-blue-100 border-transparent' 
-  };
-  return (
-    <div className={`p-8 rounded-[2.5rem] border shadow-sm flex flex-col items-center text-center transition-all ${styles[type]}`}>
-      <div className={`p-4 rounded-2xl mb-4 ${type === 'balance' ? 'bg-blue-500' : 'bg-slate-50 text-slate-500'}`}>{icon}</div>
-      <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${type === 'balance' ? 'text-blue-100' : 'text-slate-500'}`}>{label}</p>
-      <h3 className="text-2xl font-black">{formatCurrency(value)}</h3>
-    </div>
-  );
+  const styles = { income: 'bg-white text-emerald-700 border-slate-100', expense: 'bg-white text-red-700 border-slate-100', balance: 'bg-blue-600 text-white shadow-blue-100 border-transparent' };
+  return <div className={`p-8 rounded-[2.5rem] border shadow-sm flex flex-col items-center text-center transition-all ${styles[type]}`}><div className={`p-4 rounded-2xl mb-4 ${type === 'balance' ? 'bg-blue-500' : 'bg-slate-50 text-slate-500'}`} aria-hidden="true">{icon}</div><p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${type === 'balance' ? 'text-blue-100' : 'text-slate-500'}`}>{label}</p><h3 className="text-2xl font-black">{formatCurrency(value)}</h3></div>;
 }
-
 function TransactionBox({ title, items, onDelete, isExpense }) {
-  return (
-    <section className="space-y-4">
-      <h4 className={`text-xs font-black uppercase tracking-widest ml-2 ${isExpense ? 'text-red-700' : 'text-emerald-700'}`}>{title}</h4>
-      <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden divide-y">
-        {items.map(i => (
-          <div key={i.id} className="p-6 flex justify-between items-center hover:bg-slate-50 group transition-colors select-none">
-            <div className="min-w-0">
-              <p className="font-bold text-sm truncate text-slate-800">{i.title}</p>
-              <p className="text-[10px] text-slate-500 font-bold uppercase">{i.date} • {i.category}</p>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className={`font-black text-sm ${isExpense ? 'text-red-600' : 'text-emerald-600'}`}>{isExpense ? '-' : '+'} {formatCurrency(i.amount)}</span>
-              <button onClick={() => onDelete(i.id)} className="text-slate-300 hover:text-red-600 focus:text-red-600 transition-all outline-none" aria-label="Remover"><Trash2 size={16}/></button>
-            </div>
-          </div>
-        ))}
-        {items.length === 0 && <div className="p-16 text-center text-slate-400 text-xs italic font-medium">Sem registros</div>}
-      </div>
-    </section>
-  );
+  return <section className="space-y-4"><h4 className={`text-xs font-black uppercase tracking-widest ml-2 ${isExpense ? 'text-red-700' : 'text-emerald-700'}`}>{title}</h4><div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden divide-y">{items.map(i => (<div key={i.id} className="p-6 flex justify-between items-center hover:bg-slate-50 group transition-colors select-none"><div className="min-w-0"><p className="font-bold text-sm truncate text-slate-800">{i.title}</p><p className="text-[10px] text-slate-500 font-bold uppercase">{i.date} • {i.category}</p></div><div className="flex items-center gap-4"><span className={`font-black text-sm ${isExpense ? 'text-red-600' : 'text-emerald-600'}`}>{isExpense ? '-' : '+'} {formatCurrency(i.amount)}</span><button onClick={() => onDelete(i.id)} className="text-slate-300 hover:text-red-600 focus:text-red-600 transition-all outline-none" aria-label="Remover"><Trash2 size={16}/></button></div></div>))}{items.length === 0 && <div className="p-16 text-center text-slate-400 text-xs italic font-medium">Sem registros</div>}</div></section>;
 }
-
 function ShoppingSection({ title, items, isCart, onToggle, onDelete, onUpdateQty, onFavorite }) {
-  return (
-    <section className="space-y-4">
-      <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2 mt-8">{title}</h4>
-      <div className={`${isCart ? 'bg-slate-100/60 opacity-60 grayscale' : 'bg-white'} rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden divide-y`}>
-        {items.map(i => (
-          <div key={i.id} className={`p-6 flex items-center gap-4 transition-all select-none ${i.favorite && !isCart ? 'bg-amber-50/50' : ''}`}>
-            <button onClick={() => onToggle(i.id)} className={`shrink-0 focus:ring-2 focus:ring-offset-2 rounded-full outline-none ${isCart ? 'text-emerald-600' : 'text-slate-300 hover:text-blue-500'}`}>
-              {isCart ? <CheckCircle2 size={30} /> : <Circle size={30} />}
-            </button>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className={`font-bold text-sm truncate ${isCart ? 'line-through text-slate-600' : 'text-slate-800'}`}>{i.name}</span>
-                {i.favorite && <Star size={12} className="fill-amber-500 text-amber-500 shrink-0" />}
-                {i.isBulk && <span className="bg-orange-100 text-orange-700 text-[8px] font-black uppercase px-2 py-0.5 rounded-full tracking-widest">Fardo</span>}
-                {i.category === 'Farmácia' && <Pill size={12} className="text-purple-600" />}
-              </div>
-              <p className="text-[10px] text-slate-500 font-black tracking-widest uppercase mt-0.5">{formatCurrency(Number(i.price) || 0)} / {i.unit === 'g' ? 'kg' : 'un'}</p>
-            </div>
-            {!isCart && (
-              <div className="flex items-center bg-slate-100 rounded-2xl p-1 border border-slate-200">
-                <button onClick={() => onUpdateQty(i.id, -1)} className="p-1.5 text-slate-600 hover:text-slate-800 outline-none"><Minus size={14}/></button>
-                <span className="px-2 text-[10px] font-black text-slate-800 min-w-[40px] text-center">{i.quantity}{i.unit}</span>
-                <button onClick={() => onUpdateQty(i.id, 1)} className="p-1.5 text-slate-600 hover:text-slate-800 outline-none"><Plus size={14}/></button>
-              </div>
-            )}
-            <div className="flex items-center gap-2 ml-2">
-                {!isCart && <button onClick={() => onFavorite(i.id)} className={`p-2 rounded-xl transition-all outline-none ${i.favorite ? 'text-amber-600 bg-amber-50' : 'text-slate-300 hover:text-amber-500'}`}><Star size={18} className={i.favorite ? "fill-amber-500" : ""} /></button>}
-                <div className="text-right min-w-[80px]">
-                  <p className="font-black text-sm text-slate-800">{formatCurrency((Number(i.price) * Number(i.quantity)) / (i.unit === 'g' ? 1000 : 1))}</p>
-                  <button onClick={() => onDelete(i.id)} className="text-[9px] font-black text-slate-400 hover:text-red-600 focus:text-red-600 uppercase outline-none transition-colors">Remover</button>
-                </div>
-            </div>
-          </div>
-        ))}
-        {items.length === 0 && <div className="p-12 text-center text-slate-400 text-xs italic font-medium">Nenhum item</div>}
-      </div>
-    </section>
-  );
+  return <section className="space-y-4"><h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2 mt-8">{title}</h4><div className={`${isCart ? 'bg-slate-100/60 opacity-60 grayscale' : 'bg-white'} rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden divide-y`}>{items.map(i => (<div key={i.id} className={`p-6 flex items-center gap-4 transition-all select-none ${i.favorite && !isCart ? 'bg-amber-50/50' : ''}`}><button onClick={() => onToggle(i.id)} className={`shrink-0 focus:ring-2 focus:ring-offset-2 rounded-full outline-none ${isCart ? 'text-emerald-600 focus:ring-emerald-500' : 'text-slate-300 hover:text-blue-500 focus:ring-blue-500'}`} aria-label={isCart ? `Devolver ${i.name}` : `Marcar ${i.name}`}>{isCart ? <CheckCircle2 size={30} aria-hidden="true" /> : <Circle size={30} aria-hidden="true" />}</button><div className="flex-1 min-w-0"><div className="flex items-center gap-2"><span className={`font-bold text-sm truncate ${isCart ? 'line-through text-slate-600' : 'text-slate-800'}`}>{i.name}</span>{i.favorite && <Star size={12} className="fill-amber-500 text-amber-500 shrink-0" aria-hidden="true" />}{i.isBulk && <span className="bg-orange-100 text-orange-700 text-[8px] font-black uppercase px-2 py-0.5 rounded-full tracking-widest whitespace-nowrap" aria-label="Fardo">Fardo</span>}{i.category === 'Farmácia' && <Pill size={12} className="text-purple-600" aria-hidden="true" />}</div><p className="text-[10px] text-slate-500 font-black tracking-widest uppercase mt-0.5">{formatCurrency(Number(i.price) || 0)} / {i.unit === 'g' ? 'kg' : 'un'}</p></div>{!isCart && (<div className="flex items-center bg-slate-100 rounded-2xl p-1 border border-slate-200"><button onClick={() => onUpdateQty(i.id, -1)} className="p-1.5 text-slate-600 hover:text-slate-800 outline-none" aria-label="Menos"><Minus size={14} aria-hidden="true"/></button><span className="px-2 text-[10px] font-black text-slate-800 min-w-[40px] text-center" aria-label="Quantidade">{i.quantity}{i.unit}</span><button onClick={() => onUpdateQty(i.id, 1)} className="p-1.5 text-slate-600 hover:text-slate-800 outline-none" aria-label="Mais"><Plus size={14} aria-hidden="true"/></button></div>)}<div className="flex items-center gap-2 ml-2">{!isCart && <button onClick={() => onFavorite(i.id)} className={`p-2 rounded-xl transition-all outline-none ${i.favorite ? 'text-amber-600 bg-amber-50' : 'text-slate-300 hover:text-amber-500'}`} aria-label="Favoritar" aria-pressed={i.favorite}><Star size={18} className={i.favorite ? "fill-amber-500" : ""} aria-hidden="true" /></button>}<div className="text-right min-w-[80px]"><p className="font-black text-sm text-slate-800" aria-label="Total">{formatCurrency((Number(i.price) * Number(i.quantity)) / (i.unit === 'g' ? 1000 : 1))}</p><button onClick={() => onDelete(i.id)} className="text-[9px] font-black text-slate-400 hover:text-red-600 focus:text-red-600 uppercase outline-none transition-colors" aria-label="Remover">Remover</button></div></div></div>))}{items.length === 0 && <div className="p-12 text-center text-slate-400 text-xs italic font-medium">Nenhum item</div>}</div></section>;
 }
-
 function CatBtn({ active, label, onClick }) {
-  return <button type="button" onClick={onClick} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase border-2 transition-all outline-none focus:ring-2 focus:ring-blue-500 ${active ? 'bg-slate-900 border-slate-900 text-white shadow-lg' : 'border-slate-100 text-slate-500 hover:border-slate-300'}`}>{label}</button>;
+  return <button type="button" onClick={onClick} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase border-2 transition-all outline-none focus:ring-2 focus:ring-blue-500 ${active ? 'bg-slate-900 border-slate-900 text-white shadow-lg' : 'border-slate-100 text-slate-500 hover:border-slate-300'}`} aria-pressed={active}>{label}</button>;
 }
 
